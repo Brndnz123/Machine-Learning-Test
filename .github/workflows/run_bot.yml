@@ -4,20 +4,14 @@ on:
   schedule:
     # Runs at 15:05 UTC (which matches 18:05 Turkish Local Time) every single trading day
     - cron: '5 15 * * 1-5'
-  workflow_dispatch: # Allows you to trigger it manually via the GitHub UI anytime
+  workflow_dispatch: # Allows you to trigger it manually via the GitHub Actions UI anytime
 
 jobs:
   build-and-deploy:
-  jobs:
-  build-and-deploy:
     runs-on: ubuntu-latest
-    # Grant explicit Write permissions to allow GitHub Actions to update history.json
     permissions:
-      contents: write
+      contents: write # Grants explicit write access to commit history.json back to your repo
       
-    steps:
-    - name: Checkout repository
-    runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
