@@ -1,4 +1,27 @@
 [
-  {"date": "2026-05-18", "capital": 10000.00, "positions": ["CASH"]},
-  {"date": "2026-05-19", "capital": 10120.50, "positions": ["THYAO.IS", "AKBNK.IS", "TUPRS.IS"]}
+  {
+    "date": "2026-05-18",
+    "capital": 10000.0,
+    "positions": [
+      "CASH"
+    ]
+  },
+  {
+    "date": "2026-05-19",
+    "capital": 10120.5,
+    "positions": [
+      "THYAO.IS",
+      "AKBNK.IS",
+      "TUPRS.IS"
+    ]
+  },
+  {
+    "date": "2026-05-20",
+    "capital": 10033.941647310567,
+    "positions": [
+      "PETKM.IS",
+      "OYAKC.IS",
+      "TOASO.IS"
+    ]
+  }
 ]
