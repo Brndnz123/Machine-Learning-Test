@@ -1,183 +1,261 @@
 """
 ================================================================================
-  update_dashboard_data.py
-  This is the live production script executed daily inside GitHub Actions.
+    update_dashboard_data.py (v6 - Stat-Arb Production Release)
 ================================================================================
 """
 import os
 import json
+import warnings
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
-from scipy.fft import fft, fftfreq
-from sklearn.ensemble import HistGradientBoostingClassifier
 
-# --- Config ---
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+
+warnings.filterwarnings("ignore")
+
+# =============================================================================
+# CONFIG
+# =============================================================================
 BIST30_TICKERS = [
     "AKBNK.IS", "ARCLK.IS", "ASELS.IS", "BIMAS.IS", "DOHOL.IS",
     "EKGYO.IS", "ENKAI.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS",
     "HALKB.IS", "ISCTR.IS", "KCHOL.IS", "KRDMD.IS", "LOGO.IS",
-    "MGROS.IS", "ODAS.IS",  "OYAKC.IS", "PETKM.IS", "PGSUS.IS",
-    "SAHOL.IS", "SASA.IS",  "SISE.IS",  "TAVHL.IS", "TCELL.IS",
+    "MGROS.IS", "ODAS.IS", "OYAKC.IS", "PETKM.IS", "PGSUS.IS",
+    "SAHOL.IS", "SASA.IS", "SISE.IS", "TAVHL.IS", "TCELL.IS",
     "THYAO.IS", "TOASO.IS", "TTKOM.IS", "TUPRS.IS"
 ]
 
-FFT_WINDOW = 252   
-N_TOP_FREQS = 3     
-VOL_WINDOW = 21    
-LAG_DAYS = [1, 2, 3, 5, 21]
-SIGMA_THRESHOLD = 0.5
-TOP_K_ASSETS = 3
-FEES_PER_SIDE = 0.0005
+MARKET_TICKER = "XU100.IS"
+STARTING_CAPITAL = 10000.0
+TOP_K = 5
+TRAIN_WINDOW = 252 * 2
+MIN_HISTORY = 252
 
-# ── 1. LOAD OR INITIALIZE VIRTUAL ACC COUNT HISTORY ──────────────────────────
+TRANSACTION_COST = 0.0015
+SLIPPAGE_COST = 0.0005
+TARGET_HORIZON = 1
 HISTORY_FILE = "history.json"
+
+# =============================================================================
+# PERFORMANCE MATH EXTRACTION HELPERS
+# =============================================================================
+def safe_pct_change(series):
+    return series.pct_change().replace([np.inf, -np.inf], np.nan)
+
+def annualized_sharpe(returns):
+    returns = pd.Series(returns).dropna()
+    if len(returns) < 2 or returns.std() == 0: return np.nan
+    return (returns.mean() / returns.std()) * np.sqrt(252)
+
+def max_drawdown(equity_curve):
+    equity = pd.Series(equity_curve)
+    return ((equity - equity.cummax()) / equity.cummax()).min()
+
+# =============================================================================
+# LOAD VIRTUAL ACCOUNT ENVIRONMENT HISTORY
+# =============================================================================
 if os.path.exists(HISTORY_FILE):
-    with open(HISTORY_FILE, "r") as f:
-        history = json.load(f)
+    with open(HISTORY_FILE, "r") as f: history = json.load(f)
 else:
-    # First time initialization anchor
-    history = [{"date": "2026-05-19", "capital": 10000.00, "positions": ["CASH"]}]
+    history = [{
+        "date": "2026-05-19", "capital": STARTING_CAPITAL,
+        "positions": ["CASH"], "weights": {"CASH": 1.0}, "daily_return": 0.0
+    }]
 
 last_entry = history[-1]
-current_capital = last_entry["capital"]
-last_held_positions = last_entry["positions"]
-
-# ── 2. DOWNLOAD MAXIMUM RECENT DATA EXTENTS ───────────────────────────────────
-raw = yf.download(tickers=BIST30_TICKERS, period="3y", auto_adjust=False, group_by="ticker", progress=False)
-
-# ── 3. COMPUTE PERFORMANCE OF YESTERDAY'S ALLOCATION ──────────────────────────
+current_capital = float(last_entry["capital"])
+last_positions = last_entry["positions"]
+last_weights = last_entry.get("weights", {})
 today_str = datetime.now().strftime("%Y-%m-%d")
 
-if "CASH" not in last_held_positions and len(last_held_positions) > 0:
-    returns_sum = 0.0
-    actual_traded_count = 0
-    
-    for ticker in last_held_positions:
-        if ticker in raw.columns.levels[0]:
-            df_t = raw[ticker]
-            # Calculate today's closing performance percentage shift
-            if len(df_t) >= 2:
-                pct_change = df_t["Adj Close"].pct_change().iloc[-1]
-                if not np.isnan(pct_change):
-                    returns_sum += pct_change
-                    actual_traded_count += 1
-                    
-    if actual_traded_count > 0:
-        mean_return = returns_sum / actual_traded_count
-        current_capital *= (1.0 + mean_return)
+# =============================================================================
+# INGEST FINANCIAL MARKET CHANNELS
+# =============================================================================
+print("Downloading market data...")
+ALL_TICKERS = BIST30_TICKERS + [MARKET_TICKER]
+raw = yf.download(tickers=ALL_TICKERS, period="5y", auto_adjust=True, group_by="ticker", progress=False)
 
-# ── 4. RUN PIPELINE MODEL FORECASTER FOR TOMORROW ─────────────────────────────
-panel_frames = []
-live_features_today = []
+# --- Process Market Proxy ---
+market_df = raw[MARKET_TICKER].copy()
+market_close = market_df["Close"]
+market_ret_1d = safe_pct_change(market_close)
 
+market_features = pd.DataFrame(index=market_close.index)
+market_features["mkt_ret_5d"] = market_close.pct_change(5)
+market_features["mkt_ret_21d"] = market_close.pct_change(21)
+market_features["mkt_vol_21d"] = market_ret_1d.rolling(21).std()
+market_features["mkt_vol_63d"] = market_ret_1d.rolling(63).std()
+
+# =============================================================================
+# COMPUTE REALIZED PERFORMANCE FOR ACCOUNT CURVE LOGGING
+# =============================================================================
+daily_return = 0.0
+if "CASH" not in last_positions and len(last_positions) > 0:
+    weighted_return = 0.0
+    valid_assets = 0
+    for ticker in last_positions:
+        if ticker not in raw.columns.levels[0]: continue
+        df_t = raw[ticker].copy()
+        if len(df_t) < 2: continue
+        ret = safe_pct_change(df_t["Close"]).iloc[-1]
+        if pd.isna(ret): continue
+        weighted_return += ret * last_weights.get(ticker, 0)
+        valid_assets += 1
+    if valid_assets > 0:
+        daily_return = weighted_return
+        current_capital *= (1.0 + daily_return)
+
+# =============================================================================
+# EXTRACT CAUSAL PANEL INDICATORS (BUG FIX: SHIFT BEFORE ROLLING)
+# =============================================================================
+panel_data = []
+live_rows = []
+
+print("Engineering features...")
 for ticker in BIST30_TICKERS:
     if ticker not in raw.columns.levels[0]: continue
-    df_t = raw[ticker].copy().dropna(subset=["Adj Close"])
-    cb_mask = ((df_t["High"] == df_t["Low"]) | (df_t["Volume"] == 0))
-    df_t = df_t[~cb_mask].copy()
+    df = raw[ticker].copy()
+    if len(df) < MIN_HISTORY: continue
+
+    close, volume = df["Close"], df["Volume"]
+    ret_1d = safe_pct_change(close)
     
-    log_ret = np.log(df_t["Adj Close"] / df_t["Adj Close"].shift(1))
-    rolling_vol = log_ret.shift(1).rolling(VOL_WINDOW, min_periods=10).std().replace(0, np.nan)
-    z_ret = (log_ret / rolling_vol).dropna()
+    # Bug Fix: Enforce causal lookup barriers on indicators
+    feats = pd.DataFrame(index=close.index)
+    feats["ret_1d"] = ret_1d.shift(1)
+    feats["ret_5d"] = close.pct_change(5).shift(1)
+    feats["ret_10d"] = close.pct_change(10).shift(1)
+    feats["ret_21d"] = close.pct_change(21).shift(1)
+    feats["ret_63d"] = close.pct_change(63).shift(1)
+
+    feats["vol_5d"] = ret_1d.shift(1).rolling(5).std()
+    feats["vol_21d"] = ret_1d.shift(1).rolling(21).std()
+    feats["vol_63d"] = ret_1d.shift(1).rolling(63).std()
+
+    feats["intraday_range"] = ((df["High"] - df["Low"]) / close).shift(1)
+    feats["volume_z"] = ((volume - volume.rolling(21).mean()) / volume.rolling(21).std()).shift(1)
     
-    if len(z_ret) < FFT_WINDOW + 2: continue
-    arr, dates = z_ret.values, z_ret.index
+    feats["skew_21d"] = ret_1d.shift(1).rolling(21).skew()
+    feats["kurt_21d"] = ret_1d.shift(1).rolling(21).kurt()
+
+    feats["trend_ma_ratio"] = (close.rolling(10).mean() / close.rolling(50).mean()).shift(1)
+    feats["relative_strength_21d"] = (close.pct_change(21) - market_close.pct_change(21)).shift(1)
+
+    # Combine data structures cleanly
+    feats = feats.join(market_features.shift(1), how="left")
     
-    # Structural training records extraction
-    fft_rows = []
-    for i in range(FFT_WINDOW, len(arr)):
-        w = arr[i - FFT_WINDOW : i]
-        vals = fft(w)
-        amps, freqs = np.abs(vals[: len(w) // 2]), fftfreq(len(w), d=1.0)[: len(w) // 2]
-        amps[0] = 0.0
-        top = np.argsort(amps)[::-1][:N_TOP_FREQS]
-        row = {}
-        for r, idx in enumerate(top, start=1):
-            row[f"fft_amp_{r}"] = amps[idx]
-            row[f"fft_freq_{r}"] = freqs[idx]
-            row[f"fft_period_{r}"] = (1.0 / freqs[idx]) if freqs[idx] > 1e-9 else np.nan
-        row["date"] = dates[i]
-        fft_rows.append(row)
+    # Continuous Regression target
+    feats["target"] = close.pct_change(TARGET_HORIZON).shift(-TARGET_HORIZON)
+    feats["ticker"] = ticker
+    
+    feats_clean = feats.dropna(subset=[c for c in feats.columns if c != "target"])
+    
+    # Store matrix blocks
+    train_slice = feats_clean.dropna(subset=["target"])
+    if not train_slice.empty:
+        panel_data.append(train_slice)
         
-    fft_df = pd.DataFrame(fft_rows).set_index("date")
-    lag_df = pd.DataFrame(index=z_ret.index)
-    for k in LAG_DAYS: lag_df[f"z_lag_{k}d"] = z_ret.shift(k)
-    lag_df["z_rvol_21d"] = z_ret.shift(1).rolling(21).std()
-    lag_df["z_rskew_21d"] = z_ret.shift(1).rolling(21).skew()
-    
-    feats = fft_df.join(lag_df, how="left").dropna()
-    next_z = z_ret.shift(-1).reindex(feats.index)
-    target = pd.Series(np.nan, index=feats.index)
-    target[next_z > SIGMA_THRESHOLD] = 1
-    target[next_z < -SIGMA_THRESHOLD] = 0
-    
-    historical_idx = feats.index.intersection(target.dropna().index)
-    hist_feats = feats.loc[historical_idx]
-    hist_feats["target"] = target.loc[historical_idx].values
-    hist_feats["ticker"] = ticker
-    panel_frames.append(hist_feats)
-    
-    # Today's live record feature alignment block
-    w_live = arr[-FFT_WINDOW:]
-    v_live = fft(w_live)
-    a_live, f_live = np.abs(v_live[: len(w_live) // 2]), fftfreq(len(w_live), d=1.0)[: len(w_live) // 2]
-    a_live[0] = 0.0
-    top_l = np.argsort(a_live)[::-1][:N_TOP_FREQS]
-    
-    live_row = {}
-    for r, idx in enumerate(top_l, start=1):
-        live_row[f"fft_amp_{r}"] = a_live[idx]
-        live_row[f"fft_freq_{r}"] = f_live[idx]
-        live_row[f"fft_period_{r}"] = (1.0 / f_live[idx]) if f_live[idx] > 1e-9 else np.nan
-    for k in LAG_DAYS: live_row[f"z_lag_{k}d"] = z_ret.iloc[-k]
-    live_row["z_rvol_21d"] = z_ret.iloc[-21:].std()
-    live_row["z_rskew_21d"] = z_ret.iloc[-21:].skew()
-    live_row["ticker"] = ticker
-    live_features_today.append(live_row)
+    # Isolate final row representing today's closing metrics
+    latest_row = feats_clean.iloc[[-1]].copy()
+    live_rows.append(latest_row)
 
-master_panel = pd.concat(panel_frames, axis=0)
-live_df = pd.DataFrame(live_features_today).set_index("ticker")
+master = pd.concat(panel_data).sort_index()
+feature_cols = [c for c in master.columns if c not in ["target", "ticker"]]
+live_df = pd.concat(live_rows).set_index("ticker")
 
-for ticker in BIST30_TICKERS:
-    col_name = f"is_{ticker}"
-    master_panel[col_name] = (master_panel["ticker"] == ticker).astype(float)
-    live_df[col_name] = (live_df.index == ticker).astype(float)
+# Apply dynamic rolling training boundaries
+recent_dates = sorted(master.index.unique())
+if len(recent_dates) > TRAIN_WINDOW:
+    master = master[master.index >= recent_dates[-TRAIN_WINDOW]]
 
-exclude_cols = {"ticker", "target", "raw_next_return"}
-feat_cols = [c for c in master_panel.columns if c not in exclude_cols]
+# =============================================================================
+# TRAIN MODEL PIPELINE
+# =============================================================================
+print("Training model...")
+X_train, y_train = master[feature_cols], master["target"]
 
-clf = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.05, max_iter=100, random_state=42, class_weight="balanced")
-clf.fit(master_panel[feat_cols].values, master_panel["target"].values)
+model = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("model", HistGradientBoostingRegressor(max_depth=4, learning_rate=0.03, max_iter=250, min_samples_leaf=20, random_state=42))
+])
+model.fit(X_train, y_train)
 
-X_live = live_df[feat_cols].values
-probs_up = clf.predict_proba(X_live)[:, 1]
-preds_up = clf.predict(X_live)
+# Generate Tomorrow's Forecast Metrics
+live_df["expected_return"] = model.predict(live_df[feature_cols])
 
-live_df["AI_Direction"] = ["UP" if p == 1 else "DOWN" for p in preds_up]
-live_df["AI_Confidence"] = probs_up
+# =============================================================================
+# EXECUTION LOGIC & INVERSE VOLATILITY VALUE TARGETING
+# =============================================================================
+selected = live_df.sort_values("expected_return", ascending=False).head(TOP_K)
+selected = selected[selected["expected_return"] > 0]
 
-orders_df = live_df[live_df["AI_Direction"] == "UP"].sort_values(by="AI_Confidence", ascending=False).head(TOP_K_ASSETS)
-
-# Determine targeted ticker lists for tomorrow
-if orders_df.empty:
+if selected.empty:
     tomorrow_positions = ["CASH"]
+    weights = {"CASH": 1.0}
 else:
-    tomorrow_positions = list(orders_df.index)
-    # Deduct transaction fee adjustments based on allocation shifts
-    new_buys = set(tomorrow_positions) - set(last_held_positions)
-    sales = set(last_held_positions) - set(tomorrow_positions)
-    current_capital -= (current_capital / TOP_K_ASSETS) * (len(new_buys) + len(sales)) * FEES_PER_SIDE
+    # Scale inverse weights cleanly via variance
+    vols = selected["vol_21d"].replace(0, np.nan)
+    inv_vol = 1.0 / vols
+    weights_raw = inv_vol / inv_vol.sum()
+    
+    weights = {ticker: float(w) for ticker, w in zip(selected.index, weights_raw)}
+    tomorrow_positions = list(selected.index)
 
-# ── 5. SAVE RECORDS BACK INTO JSON DATABASE ───────────────────────────────────
-# Clean duplicates if running manually twice in a single day
-if history[-1]["date"] == today_str:
-    history[-1] = {"date": today_str, "capital": float(current_capital), "positions": tomorrow_positions}
+# =============================================================================
+# ACCURATE PORTFOLIO LEVEL TURNOVER COST MODEL
+# =============================================================================
+# Bug Fix: Calculate transaction fee scale relative to actual traded position sizes
+cost_rate_per_trade = TRANSACTION_COST + SLIPPAGE_COST
+portfolio_cost_impact = 0.0
+
+for asset in set(last_positions) | set(tomorrow_positions):
+    old_w = last_weights.get(asset, 0.0)
+    new_w = weights.get(asset, 0.0)
+    # The true difference in capital allocation sizes
+    portfolio_cost_impact += abs(new_w - old_w) * cost_rate_per_trade
+
+current_capital *= (1.0 - portfolio_cost_impact)
+
+# =============================================================================
+# UPDATE TRACKER METRICS FOR THE LIVE INTERFACE
+# =============================================================================
+equity_curve = [x["capital"] for x in history] + [current_capital]
+returns_series = [x.get("daily_return", 0) for x in history] + [daily_return]
+
+sharpe = annualized_sharpe(returns_series)
+mdd = max_drawdown(equity_curve)
+
+new_entry = {
+    "date": today_str, "capital": float(current_capital),
+    "positions": tomorrow_positions, "weights": weights, "daily_return": float(daily_return),
+    "sharpe": None if pd.isna(sharpe) else float(sharpe), "max_drawdown": float(mdd)
+}
+
+if history[-1]["date"] == today_str: history[-1] = new_entry
+else: history.append(new_entry)
+
+with open(HISTORY_FILE, "w") as f: json.dump(history, f, indent=2)
+
+# =============================================================================
+# OUTPUT DISPLAY PANELS
+# =============================================================================
+print("\n===================================================")
+print("  STAT-ARB PERFORMANCE HUB SUMMARY ")
+print("===================================================")
+print(f"Date: {today_str} | Active Account Capital: {current_capital:,.2f} TRY")
+print("\nTarget Portfolio Allocation for Tomorrow:")
+if tomorrow_positions == ["CASH"]:
+    print("   portfolios optimized to CASH liquidity reserves.")
 else:
-    history.append({"date": today_str, "capital": float(current_capital), "positions": tomorrow_positions})
+    for ticker in tomorrow_positions:
+        print(f"   {ticker:<12} Predicted Return: {live_df.loc[ticker, 'expected_return']:>7.3%} | Target Weight: {weights[ticker]:>6.2%}")
 
-with open(HISTORY_FILE, "w") as f:
-    json.dump(history, f, indent=2)
-
-print(f"Success. Target Tomorrow: {tomorrow_positions}")
+print("\nRisk Parameters:")
+print(f" Sharpe Ratio (Ann) : {sharpe:.2f}" if not pd.isna(sharpe) else " Sharpe Ratio: N/A")
+print(f" Peak Max Drawdown  : {mdd:.2%}")
+print("===================================================\n")
