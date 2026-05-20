@@ -17,11 +17,23 @@
   },
   {
     "date": "2026-05-20",
-    "capital": 10033.941647310567,
+    "capital": 10013.873764015945,
     "positions": [
-      "PETKM.IS",
-      "OYAKC.IS",
-      "TOASO.IS"
-    ]
+      "SASA.IS",
+      "HALKB.IS",
+      "AKBNK.IS",
+      "ODAS.IS",
+      "OYAKC.IS"
+    ],
+    "weights": {
+      "SASA.IS": 0.1676901445608448,
+      "HALKB.IS": 0.21905821960688535,
+      "AKBNK.IS": 0.1841900013559657,
+      "ODAS.IS": 0.16585255560037188,
+      "OYAKC.IS": 0.2632090788759322
+    },
+    "daily_return": 0.0,
+    "sharpe": null,
+    "max_drawdown": -0.0105356687894921
   }
 ]
