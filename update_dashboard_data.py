@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v19 - Production Macro Engine Release)
+    update_dashboard_data.py (v20 - Production Scope Fix Release)
     Automated execution script for GitHub Actions deployment pipeline.
 ================================================================================
 """
@@ -37,10 +37,13 @@ LOOKBACK_DAYS = 365 * 3
 TOP_K = 5
 TARGET_HORIZON = 21             # 1-month intermediate macro trend targeting
 
+# Fixed: Explicit global binding to prevent GitHub Actions NameError initialization crashes
+STARTING_CAPITAL = 10000.0      
+
 TRANSACTION_COST = 0.0015
 SLIPPAGE_COST = 0.0005
 MAX_SINGLE_POSITION_WEIGHT = 0.35
-DRAWDOWN_CIRCUIT_BREAKER = -0.99  # Kept open to match the unconstrained high-alpha model
+DRAWDOWN_CIRCUIT_BREAKER = -0.99  
 
 ANNUAL_RISK_FREE_RATE = 0.45  
 DAILY_RISK_FREE_RATE = (1.0 + ANNUAL_RISK_FREE_RATE) ** (1.0 / 252.0) - 1.0
@@ -122,8 +125,8 @@ unique_dates = np.sort(master_panel.index.unique())
 # INCREMENTAL LIVE TRAINING ENGINE LOOP
 # =============================================================================
 print("Executing sliding training windows for target alpha vector calculation...")
-train_dates = unique_dates[:-1]  # Train on all available history up to the latest complete date
-latest_date = unique_dates[-1]   # The current live day to rank positions for tomorrow
+train_dates = unique_dates[:-1]  
+latest_date = unique_dates[-1]   
 
 train_set = master_panel.loc[train_dates]
 X_tr = train_set[[c for c in train_set.columns if c not in ["target", "ticker"]]]
@@ -140,7 +143,6 @@ model = Pipeline([
 ])
 model.fit(X_tr.values, y_tr.values)
 
-# Get current data vectors for ranking
 day_data = master_panel.loc[[latest_date]]
 if day_data.empty:
     print(f"⚠️ Critical Error: Data signature for {latest_date} is empty. Aborting pipeline update.")
@@ -150,24 +152,20 @@ X_step = day_data[[c for c in day_data.columns if c not in ["target", "ticker"]]
 tickers_step = day_data["ticker"].values
 pred_alphas = model.predict(X_step.values)
 
-# Create perfectly cross-aligned data vector table
 rank_df = pd.DataFrame({
     "vol": day_data["vol_21d"].values,
     "rs": day_data["relative_strength_21d"].values
 }, index=tickers_step)
 
-# Apply Cross-Sectional Z-Score Standardization
 alpha_std = pred_alphas.std()
 rs_std = rank_df["rs"].std()
 
 z_alpha = (pred_alphas - pred_alphas.mean()) / alpha_std if alpha_std > 0 else pred_alphas
 z_rs = (rank_df["rs"] - rank_df["rs"].mean()) / rs_std if rs_std > 0 else rank_df["rs"]
 
-# Execute the 1:1 Synergy Combination verified by ablation tests
 rank_df["composite_score"] = z_alpha + z_rs
 selected = rank_df.sort_values(by="composite_score", ascending=False).head(TOP_K)
 
-# Construct Inverse-Volatility Target Portfolio Weights
 vols = selected["vol"].replace(0, np.nan)
 inv_vol = 1.0 / vols
 weights_raw = inv_vol / inv_vol.sum()
@@ -189,7 +187,6 @@ if os.path.exists(history_file):
 else:
     history_data = []
 
-# Initialize account baseline if tracking history is completely empty
 if not history_data:
     current_capital = STARTING_CAPITAL
     current_benchmark = STARTING_CAPITAL
@@ -204,7 +201,6 @@ else:
     last_weights_logged = last_entry.get("weights", {"CASH": 1.0})
     running_peak = max([e["capital"] for e in history_data] + [current_capital])
 
-# Accrue last session's returns
 mkt_return_today = market_ret_1d.get(latest_date, 0.0)
 if np.isnan(mkt_return_today): mkt_return_today = 0.0
 current_benchmark *= (1.0 + mkt_return_today)
@@ -218,19 +214,16 @@ if "CASH" not in last_positions_logged:
         day_return += asset_ret * last_weights_logged.get(asset, 0.0)
     current_capital *= (1.0 + day_return)
 
-# Deduct turnover transactional friction costs
 cost = 0.0
 for asset in set(last_positions_logged) | set(next_positions):
     cost += abs(next_weights.get(asset, 0.0) - last_weights_logged.get(asset, 0.0)) * (TRANSACTION_COST + SLIPPAGE_COST)
 current_capital *= (1.0 - cost)
 
-# Check drawdown limits
 current_drawdown = (current_capital - running_peak) / running_peak
 if current_drawdown <= DRAWDOWN_CIRCUIT_BREAKER:
     next_positions = ["CASH"]
     next_weights = {"CASH": 1.0}
 
-# Calculate current localized Sharpe ratio history
 if len(history_data) > 5:
     cap_series = pd.Series([e["capital"] for e in history_data] + [current_capital])
     ret_series = cap_series.pct_change().dropna()
@@ -240,7 +233,6 @@ if len(history_data) > 5:
 else:
     computed_sharpe = 0.0
 
-# Formulate the production record packet
 new_record = {
     "date": pd.Timestamp(latest_date).strftime("%Y-%m-%d"),
     "capital": float(current_capital),
@@ -251,7 +243,6 @@ new_record = {
     "weights": next_weights
 }
 
-# Maintain incremental sequence limits by trimming historical lists (keeps frontend fast)
 history_data.append(new_record)
 if len(history_data) > 250:
     history_data = history_data[-250:]
