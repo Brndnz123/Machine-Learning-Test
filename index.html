@@ -2,61 +2,189 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>BIST 30 Bot Dashboard</title>
-    <!-- Include responsive styling and graphing elements via CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIST 30 Stat-Arb Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0b0f19; }
+    </style>
 </head>
-<body class="bg-gray-900 text-gray-100 p-6">
-    <div class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold mb-2">📊 BIST 30 AI Bot Tracker</h1>
-        <p class="text-gray-400 mb-6">Automated daily panel model portfolio logs.</p>
-        
-        <!-- Live Metric Summary Blocks -->
-        <div class="grid grid-cols-2 gap-4 mb-6">
-            <div class="bg-gray-800 p-4 rounded-lg shadow">
-                <p class="text-sm text-gray-400">Current Capital</p>
-                <p id="live-capital" class="text-2xl font-bold text-green-400">Loading...</p>
+<body class="text-slate-100 antialiased min-h-screen">
+
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="flex h-3 h-3 w-3 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </span>
+                    <h1 class="text-2xl font-bold tracking-tight text-white">BIST 30 Alpha Engine</h1>
+                </div>
+                <p class="text-sm text-slate-400 mt-0.5">Production-Scale Cross-Sectional Statistical Arbitrage</p>
             </div>
-            <div id="target-block" class="bg-gray-800 p-4 rounded-lg shadow">
-                <p class="text-sm text-gray-400">Current Top Positions</p>
-                <p id="live-allocations" class="text-lg font-semibold text-blue-400">Loading...</p>
+            <div class="text-xs bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-md font-mono text-slate-300">
+                Status: Live & Automated
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-slate-900/60 border border-slate-800 p-5 rounded-xl shadow-xl">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Account Net Asset Value</p>
+                <p id="live-capital" class="text-3xl font-bold text-white mt-2 font-mono">Loading...</p>
+                <p id="live-return-badge" class="text-xs font-medium mt-1 inline-flex items-center gap-1"></p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 p-5 rounded-xl shadow-xl">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Annualized Sharpe Ratio</p>
+                <p id="live-sharpe" class="text-3xl font-bold text-sky-400 mt-2 font-mono">Loading...</p>
+                <p class="text-slate-500 text-xs mt-1">Risk-Adjusted Return Profile</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 p-5 rounded-xl shadow-xl">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Maximum Drawdown</p>
+                <p id="live-mdd" class="text-3xl font-bold text-rose-500 mt-2 font-mono">Loading...</p>
+                <p class="text-slate-500 text-xs mt-1">Peak-to-Trough Capital Risk</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 p-5 rounded-xl shadow-xl">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Last Sync Boundary</p>
+                <p id="live-date" class="text-2xl font-bold text-slate-300 mt-2.5 font-mono">Loading...</p>
+                <p class="text-slate-500 text-xs mt-1">Executed at closing bell</p>
             </div>
         </div>
 
-        <!-- Performance Line Graph Container -->
-        <div class="bg-gray-800 p-6 rounded-lg shadow">
-            <canvas id="performanceChart"></canvas>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-slate-900/40 border border-slate-800 p-6 rounded-2xl shadow-2xl flex flex-col justify-between">
+                <div class="mb-4">
+                    <h3 class="text-lg font-semibold text-white">Equity Performance Curve</h3>
+                    <p class="text-xs text-slate-400">Compounded capitalization trajectory over time</p>
+                </div>
+                <div class="w-full relative h-[320px]">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl shadow-2xl flex flex-col">
+                <div class="mb-4">
+                    <h3 class="text-lg font-semibold text-white">Active Portfolio Weights</h3>
+                    <p class="text-xs text-slate-400">Inverse-volatility target positioning for tomorrow</p>
+                </div>
+                <div id="allocations-list" class="space-y-3 flex-1 flex flex-col justify-center">
+                    <div class="text-slate-500 text-sm animate-pulse text-center">Parsing target vectors...</div>
+                </div>
+            </div>
         </div>
-    </div>
+    </main>
 
     <script>
-        // Fetch the historical records updated daily by your GitHub Actions runner
         fetch('history.json')
             .then(res => res.json())
             .then(data => {
+                const initialCapital = 10000.0;
                 const latest = data[data.length - 1];
-                document.getElementById('live-capital').innerText = latest.capital.toFixed(2) + ' TRY';
-                document.getElementById('live-allocations').innerText = latest.positions.join(', ');
+                
+                // 1. Parse Card Elements Metrics
+                document.getElementById('live-capital').innerText = latest.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' TRY';
+                document.getElementById('live-date').innerText = latest.date;
+                
+                const sharpeVal = latest.sharpe;
+                document.getElementById('live-sharpe').innerText = (sharpeVal && !isNaN(sharpeVal)) ? parseFloat(sharpeVal).toFixed(2) : 'N/A';
+                document.getElementById('live-mdd').innerText = (latest.max_drawdown * 100).toFixed(2) + '%';
 
+                // Calculate cumulative return percentage shift
+                const cumReturn = ((latest.capital / initialCapital) - 1.0) * 100;
+                const badge = document.getElementById('live-return-badge');
+                if (cumReturn >= 0) {
+                    badge.innerText = `+${cumReturn.toFixed(2)}% total return`;
+                    badge.className = "text-xs font-medium mt-1 inline-flex items-center gap-1 text-emerald-400";
+                } else {
+                    badge.innerText = `${cumReturn.toFixed(2)}% total return`;
+                    badge.className = "text-xs font-medium mt-1 inline-flex items-center gap-1 text-rose-400";
+                }
+
+                // 2. Render Target Weight Allocation Layout Blocks
+                const allocationList = document.getElementById('allocations-list');
+                allocationList.innerHTML = ''; // Wipe loader
+
+                const weightsMap = latest.weights || {};
+                const positions = latest.positions || [];
+
+                if (positions.includes("CASH") || Object.keys(weightsMap).length === 0) {
+                    allocationList.innerHTML = `
+                        <div class="bg-slate-800/40 border border-dashed border-slate-700 rounded-xl p-6 text-center">
+                            <p class="text-amber-400 font-semibold tracking-wide text-sm">🛡️ SYSTEM AT CASHOUT</p>
+                            <p class="text-xs text-slate-400 mt-1">AI flagged negative expected alphas across the index. Capital protected in cash reserves.</p>
+                        </div>`;
+                } else {
+                    // Sort items by position allocation sizing weights descending
+                    const sortedWeights = Object.entries(weightsMap).sort((a,b) => b[1] - a[1]);
+                    
+                    sortedWeights.forEach(([ticker, w]) => {
+                        const weightPct = (w * 100).toFixed(1);
+                        const cleanTicker = ticker.replace('.IS', '');
+                        
+                        const itemHtml = `
+                            <div class="bg-slate-800/30 border border-slate-800/80 px-4 py-3 rounded-xl flex items-center justify-between hover:border-slate-700 transition">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center font-bold text-xs font-mono border border-sky-500/10">${cleanTicker[0]}</div>
+                                    <span class="font-bold text-sm tracking-tight text-slate-200 font-mono">${cleanTicker}</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-sm font-semibold text-slate-300 font-mono">${weightPct}%</span>
+                                    <div class="w-24 bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                                        <div class="bg-sky-400 h-1.5 rounded-full" style="width: ${weightPct}%"></div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        allocationList.insertAdjacentHTML('beforeend', itemHtml);
+                    });
+                }
+
+                // 3. Render Custom Chart.js Line Layout Curve
                 const dates = data.map(d => d.date);
                 const capitals = data.map(d => d.capital);
 
-                // Initialize clean data tracking metrics chart
-                new Chart(document.getElementById('performanceChart'), {
+                const ctx = document.getElementById('performanceChart').getContext('2d');
+                
+                // Add an elegant fade area fill gradient underneath the line curve
+                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                gradient.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+                gradient.addColorStop(1, 'rgba(16, 185, 129, 0.00)');
+
+                new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: dates,
                         datasets: [{
-                            label: 'Total Capital Value (TRY)',
+                            label: 'Net Account Equity',
                             data: capitals,
-                            borderColor: '#34d399',
-                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                            borderColor: '#10b981',
+                            borderWidth: 2.5,
+                            pointBackgroundColor: '#10b981',
+                            pointHoverRadius: 6,
+                            backgroundColor: gradient,
                             fill: true,
-                            tension: 0.1
+                            tension: 0.25
                         }]
                     },
-                    options: { responsive: true, scales: { y: { grid: { color: '#374151' } }, x: { grid: { color: '#374151' } } } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { 
+                                grid: { color: '#1e293b', drawBorder: false },
+                                ticks: { color: '#94a3b8', font: { family: 'Inter', size: 11 } }
+                            },
+                            x: { 
+                                grid: { display: false },
+                                ticks: { color: '#94a3b8', font: { family: 'Inter', size: 10 } }
+                            }
+                        }
+                    }
                 });
             });
     </script>
