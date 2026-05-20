@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v8 - Audited Production Release)
+    update_dashboard_data.py (v10 - Data Alignment & Sharpe Release)
 ================================================================================
 """
 import os
@@ -55,10 +55,15 @@ DRAWDOWN_CIRCUIT_BREAKER = -0.15
 def safe_pct_change(series):
     return series.pct_change().replace([np.inf, -np.inf], np.nan)
 
-def annualized_sharpe(returns_list, daily_rf):
-    # Filter out cold-start 0.0 metrics to prevent inflation of the ratio
-    clean_returns = [r for r in returns_list if r != 0.0]
-    ret_series = pd.Series(clean_returns).dropna()
+def annualized_sharpe(returns_list, daily_rf, has_history_buffer):
+    """Calculates Sharpe ratio by safely skipping only the cold-start sentinel day."""
+    ret_series = pd.Series(returns_list)
+    
+    # Bug Fix: If we have historical data beyond the cold-start row, drop index 0
+    if has_history_buffer and len(ret_series) > 1:
+        ret_series = ret_series.iloc[1:]
+        
+    ret_series = ret_series.dropna()
     if len(ret_series) < 2: return np.nan
     
     excess_returns = ret_series - daily_rf
@@ -67,17 +72,29 @@ def annualized_sharpe(returns_list, daily_rf):
     if excess_std == 0: return np.nan
     return (excess_returns.mean() / excess_std) * np.sqrt(252)
 
-def calculate_drawdown_state(equity_history, current_val):
-    full_curve = pd.Series(equity_history + [current_val])
-    return ((full_curve - full_curve.cummax()) / full_curve.cummax()).iloc[-1]
+def calculate_current_drawdown(equity_curve):
+    curve_series = pd.Series(equity_curve)
+    if curve_series.empty: return 0.0
+    peak = curve_series.cummax().iloc[-1]
+    if peak == 0: return 0.0
+    return (curve_series.iloc[-1] - peak) / peak
+
+def calculate_max_historical_drawdown(equity_curve):
+    curve_series = pd.Series(equity_curve)
+    if curve_series.empty: return 0.0
+    peaks = curve_series.cummax()
+    drawdowns = (curve_series - peaks) / peaks
+    return drawdowns.min()
 
 # =============================================================================
 # STATE SYNCHRONIZATION
 # =============================================================================
 today_str = datetime.now().strftime("%Y-%m-%d")
+has_history_buffer = False
 
 if os.path.exists(HISTORY_FILE):
     with open(HISTORY_FILE, "r") as f: history = json.load(f)
+    if len(history) > 1: has_history_buffer = True
 else:
     history = [{
         "date": today_str, "capital": STARTING_CAPITAL, "benchmark_capital": STARTING_CAPITAL,
@@ -89,10 +106,12 @@ current_capital = float(last_entry["capital"])
 current_benchmark = float(last_entry.get("benchmark_capital", STARTING_CAPITAL))
 last_positions = last_entry["positions"]
 last_weights = last_entry.get("weights", {})
-past_equity_curve = [x["capital"] for x in history[:-1]] if len(history) > 1 else [STARTING_CAPITAL]
+
+# Bug Fix: Build the full base curve from history to preserve consecutive days
+full_historical_equity = [x["capital"] for x in history]
 
 # =============================================================================
-# INGESTION & DATA CLEANING
+# DATA INGESTION
 # =============================================================================
 logging.info("Downloading multi-asset historical matrix...")
 ALL_TICKERS = BIST30_TICKERS + [MARKET_TICKER]
@@ -106,14 +125,13 @@ for t in BIST30_TICKERS:
         logging.warning(f"Ticker Asset {t} unavailable or dropped.")
 
 # =============================================================================
-# SYNCED CIRCUIT BREAKER MATRIX CALCULATIONS
+# PRE-FLIGHT CIRCUIT BREAKER CHECK
 # =============================================================================
-# Calculate the exact current drawdown before checking performance updates
 circuit_breaker_triggered = False
-pre_update_mdd = calculate_drawdown_state(past_equity_curve, current_capital)
+pre_update_current_dd = calculate_current_drawdown(full_historical_equity)
 
-if pre_update_mdd <= DRAWDOWN_CIRCUIT_BREAKER:
-    logging.critical(f"🚨 CIRCUIT BREAKER BREACHED ({pre_update_mdd:.2%}). HALTING OPERATIONS.")
+if pre_update_current_dd <= DRAWDOWN_CIRCUIT_BREAKER:
+    logging.critical(f"🚨 CIRCUIT BREAKER BREACHED ({pre_update_current_dd:.2%}). HALTING OPERATIONS.")
     circuit_breaker_triggered = True
 
 # --- Update Index Benchmark ---
@@ -124,7 +142,7 @@ if len(market_df) >= 2:
     if np.isnan(mkt_return): mkt_return = 0.0
 current_benchmark *= (1.0 + mkt_return)
 
-# --- Accrue Realized Returns (Only if circuit breaker is clear) ---
+# --- Accrue Realized Returns ---
 daily_return = 0.0
 if "CASH" not in last_positions and len(last_positions) > 0 and not circuit_breaker_triggered:
     weighted_return = 0.0
@@ -142,7 +160,7 @@ if "CASH" not in last_positions and len(last_positions) > 0 and not circuit_brea
         current_capital *= (1.0 + daily_return)
 
 # =============================================================================
-# CAUSAL FEATURE PIPELINE GENERATOR
+# FEATURE PIPELINE PROCESSING
 # =============================================================================
 market_close = market_df["Close"]
 market_ret_1d = safe_pct_change(market_close)
@@ -189,25 +207,19 @@ for ticker in available_tickers:
     feats_clean = feats.dropna(subset=[c for c in feats.columns if c != "target"])
     train_slice = feats_clean.dropna(subset=["target"])
     
-    if not train_slice.empty: 
-        panel_data.append(train_slice)
-        
-    # Guard against duplicate ticker allocation errors by caching via dictionary overwrite
+    if not train_slice.empty: panel_data.append(train_slice)
     live_rows_dict[ticker] = feats_clean.iloc[-1].to_dict()
 
 master = pd.concat(panel_data).sort_index()
 feature_cols = [c for c in master.columns if c not in ["target", "ticker"]]
-
-# Convert clean dictionary mapping to data frame seamlessly
 live_df = pd.DataFrame.from_dict(live_rows_dict, orient='index')
 
-# Restrict the timeline memory window
 recent_dates = sorted(master.index.unique())
 if len(recent_dates) > TRAIN_WINDOW:
     master = master[master.index >= recent_dates[-TRAIN_WINDOW]]
 
 # =============================================================================
-# TRAIN MODEL & ALLOCATION DISCIPLINE
+# MODEL FIT
 # =============================================================================
 X_train, y_train = master[feature_cols], master["target"]
 model = Pipeline([
@@ -218,12 +230,13 @@ model.fit(X_train, y_train)
 live_df["expected_return"] = model.predict(live_df[feature_cols])
 
 # =============================================================================
-# ENFORCE FINAL ALROCATION AND TRANSACTION IMPACTS
+# RISK CONTROL EXECUTION & PORTFOLIO CONSTRUCTION
 # =============================================================================
+# Bug Fix: Calculate updated drawdown curves cleanly using full history + fresh capital point
 final_equity_curve = [x["capital"] for x in history] + [current_capital]
-post_update_mdd = max_drawdown(final_equity_curve)
+post_update_current_dd = calculate_current_drawdown(final_equity_curve)
 
-if circuit_breaker_triggered or post_update_mdd <= DRAWDOWN_CIRCUIT_BREAKER:
+if circuit_breaker_triggered or post_update_current_dd <= DRAWDOWN_CIRCUIT_BREAKER:
     tomorrow_positions = ["CASH"]
     weights = {"CASH": 1.0}
 else:
@@ -238,7 +251,6 @@ else:
         inv_vol = 1.0 / vols
         weights_raw = inv_vol / inv_vol.sum()
         
-        # Enforce the concentration cap with post-clipping renormalization
         clipped_weights = np.minimum(weights_raw, MAX_SINGLE_POSITION_WEIGHT)
         renormalized_weights = clipped_weights / clipped_weights.sum()
         
@@ -255,19 +267,24 @@ for asset in set(last_positions) | set(tomorrow_positions):
 current_capital *= (1.0 - portfolio_cost_impact)
 
 # =============================================================================
-# PERFORMANCE TRACKING EXPORTS
+# FINAL REPORTING & EXPORTS
 # =============================================================================
+# Re-read the fully adjusted curve to save down maximum trough
+final_equity_curve_adjusted = [x["capital"] for x in history] + [current_capital]
+max_historical_dd = calculate_max_historical_drawdown(final_equity_curve_adjusted)
+
 all_historical_returns = [x.get("daily_return", 0.0) for x in history] + [daily_return]
-sharpe = annualized_sharpe(all_historical_returns, DAILY_RISK_FREE_RATE)
+# Bug Fix: Enforce the precise cold-start drop logic instead of filtering zero values
+sharpe = annualized_sharpe(all_historical_returns, DAILY_RISK_FREE_RATE, has_history_buffer)
 
 new_entry = {
     "date": today_str, "capital": float(current_capital), "benchmark_capital": float(current_benchmark),
     "positions": tomorrow_positions, "weights": weights, "daily_return": float(daily_return),
-    "benchmark_return": float(mkt_return), "sharpe": None if pd.isna(sharpe) else float(sharpe), "max_drawdown": float(post_update_mdd)
+    "benchmark_return": float(mkt_return), "sharpe": None if pd.isna(sharpe) else float(sharpe), "max_drawdown": float(max_historical_dd)
 }
 
 if history[-1]["date"] == today_str: history[-1] = new_entry
 else: history.append(new_entry)
 
 with open(HISTORY_FILE, "w") as f: json.dump(history, f, indent=2)
-logging.info(f"Process complete. Allocation targets for tomorrow session: {tomorrow_positions}")
+logging.info(f"Process complete. Current Balance: {current_capital:,.2f} TRY. Positions: {tomorrow_positions}")
