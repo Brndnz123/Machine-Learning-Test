@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BIST 30 Bot Dashboard</title>
+    <!-- Include responsive styling and graphing elements via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-2">📊 BIST 30 AI Bot Tracker</h1>
+        <p class="text-gray-400 mb-6">Automated daily panel model portfolio logs.</p>
+        
+        <!-- Live Metric Summary Blocks -->
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-gray-800 p-4 rounded-lg shadow">
+                <p class="text-sm text-gray-400">Current Capital</p>
+                <p id="live-capital" class="text-2xl font-bold text-green-400">Loading...</p>
+            </div>
+            <div id="target-block" class="bg-gray-800 p-4 rounded-lg shadow">
+                <p class="text-sm text-gray-400">Current Top Positions</p>
+                <p id="live-allocations" class="text-lg font-semibold text-blue-400">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Performance Line Graph Container -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow">
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Fetch the historical records updated daily by your GitHub Actions runner
+        fetch('history.json')
+            .then(res => res.json())
+            .then(data => {
+                const latest = data[data.length - 1];
+                document.getElementById('live-capital').innerText = latest.capital.toFixed(2) + ' TRY';
+                document.getElementById('live-allocations').innerText = latest.positions.join(', ');
+
+                const dates = data.map(d => d.date);
+                const capitals = data.map(d => d.capital);
+
+                // Initialize clean data tracking metrics chart
+                new Chart(document.getElementById('performanceChart'), {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: 'Total Capital Value (TRY)',
+                            data: capitals,
+                            borderColor: '#34d399',
+                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                            fill: true,
+                            tension: 0.1
+                        }]
+                    },
+                    options: { responsive: true, scales: { y: { grid: { color: '#374151' } }, x: { grid: { color: '#374151' } } } }
+                });
+            });
+    </script>
+</body>
+</html>
