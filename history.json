@@ -11,5 +11,18 @@
         "weights": {
             "BIMAS.IS": 1.0
         }
+    },
+    {
+        "date": "2026-04-20",
+        "capital": 9842.823529411766,
+        "benchmark_capital": 10199.844229712076,
+        "sharpe": 0.0,
+        "max_drawdown": -0.011764705882352833,
+        "positions": [
+            "BIMAS.IS"
+        ],
+        "weights": {
+            "BIMAS.IS": 1.0
+        }
     }
 ]
