@@ -1,2 +1,15 @@
 [
+    {
+        "date": "2026-04-21",
+        "capital": 9976.0,
+        "benchmark_capital": 9924.404036584972,
+        "sharpe": 0.0,
+        "max_drawdown": -0.0024,
+        "positions": [
+            "BIMAS.IS"
+        ],
+        "weights": {
+            "BIMAS.IS": 0.2
+        }
+    }
 ]
