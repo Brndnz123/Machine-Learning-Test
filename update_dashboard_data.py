@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v22 - Production BIST 100 Release)
+    update_dashboard_data.py (v23 - Production T+1 Execution Release)
     Automated execution script for GitHub Actions deployment pipeline.
 ================================================================================
 """
@@ -18,19 +18,14 @@ from sklearn.pipeline import Pipeline
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# ENGINE CONFIGURATION (TYPO-FIXED COMPREHENSIVE BIST 100 UNIVERSE)
+# ENGINE CONFIGURATION (FULLY ALIGNED TO V2 EXECUTION LAB)
 # =============================================================================
 BIST100_TICKERS = [
-    "AEFES.IS", "AGHOL.IS", "AKBNK.IS", "AKCNS.IS", "AKFGY.IS", "AKSA.IS", "AKSEN.IS", "ALARK.IS", "ALBRK.IS", "ALFAS.IS",
-    "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "ASUZU.IS", "AYDEM.IS", "BERA.IS", "BIMAS.IS", "BRSAN.IS", "BRYAT.IS",
-    "BUCIM.IS", "CCOLA.IS", "CEMTS.IS", "CIMSA.IS", "CWENE.IS", "DOAS.IS", "DOHOL.IS", "ECILC.IS", "EGEEN.IS", "EKGYO.IS",
-    "ENJSA.IS", "ENKAI.IS", "EREGL.IS", "EUPWR.IS", "FROTO.IS", "GARAN.IS", "GENIL.IS", "GESAN.IS", "GOLTS.IS", "GSDHO.IS",
-    "GUBRF.IS", "GWIND.IS", "HALKB.IS", "HEKTS.IS", "ISCTR.IS", "ISGYO.IS", "ISMEN.IS", "IZMDC.IS", "KCAER.IS", 
-    "KCHOL.IS", "KENT.IS", "KONTR.IS", "KORDS.IS", "LOGO.IS", "MAVI.IS", "MGROS.IS", "MIATK.IS", "ODAS.IS", 
-    "OTKAR.IS", "OYAKC.IS", "PENTA.IS", "PETKM.IS", "PGSUS.IS", "QUAGR.IS", "SAHOL.IS", "SASA.IS", "SAYAS.IS", 
-    "SDTTR.IS", "SISE.IS", "SKBNK.IS", "SMRTG.IS", "SOKM.IS", "TABGD.IS", "TAVHL.IS", "TCELL.IS", "THYAO.IS", 
-    "TKFEN.IS", "TOASO.IS", "TSKB.IS", "TTKOM.IS", "TTRAK.IS", "TUKAS.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS", 
-    "ULKER.IS", "VAKBN.IS", "VESBE.IS", "VESTL.IS", "YEOTK.IS", "YKBNK.IS", "YYLGD.IS", "ZOREN.IS"
+    "AKBNK.IS", "ASELS.IS", "BIMAS.IS", "EREGL.IS",
+    "FROTO.IS", "GARAN.IS", "ISCTR.IS", "KCHOL.IS",
+    "MGROS.IS", "PGSUS.IS", "SAHOL.IS",
+    "SISE.IS", "TCELL.IS", "THYAO.IS", "TOASO.IS",
+    "TUPRS.IS", "YKBNK.IS"
 ]
 
 MARKET_TICKER = "XU100.IS"
@@ -38,78 +33,72 @@ FX_TICKER = "USDTRY=X"
 
 LOOKBACK_DAYS = 365 * 3         
 TOP_K = 5
-TARGET_HORIZON = 21             # 1-month intermediate macro trend target window
+TARGET_HORIZON = 21             
 
-STARTING_CAPITAL = 10000.0      
+STARTING_CAPITAL = 100000.0     # Reset to 100k to match your realistic research base
 TRANSACTION_COST = 0.0015
 SLIPPAGE_COST = 0.0005
-MAX_SINGLE_POSITION_WEIGHT = 0.35
-DRAWDOWN_CIRCUIT_BREAKER = -0.99  
+MAX_SINGLE_POSITION_WEIGHT = 0.30
+MAX_SECTOR_WEIGHT = 0.40
+MIN_ADV_TRY = 5000000.0
+VOLATILITY_FLOOR = 0.01
+DRAWDOWN_CIRCUIT_BREAKER = -0.35  
 
 ANNUAL_RISK_FREE_RATE = 0.45  
 DAILY_RISK_FREE_RATE = (1.0 + ANNUAL_RISK_FREE_RATE) ** (1.0 / 252.0) - 1.0
 
-# =============================================================================
-# PIPELINE UTILITIES
-# =============================================================================
-def safe_pct_change(series):
-    return series.pct_change().replace([np.inf, -np.inf], np.nan)
+SECTOR_MAP = {
+    "AKBNK.IS": "BANK", "GARAN.IS": "BANK", "ISCTR.IS": "BANK", "YKBNK.IS": "BANK",
+    "KCHOL.IS": "HOLDING", "SAHOL.IS": "HOLDING",
+    "THYAO.IS": "TRANSPORT", "PGSUS.IS": "TRANSPORT",
+    "TUPRS.IS": "ENERGY",
+    "BIMAS.IS": "RETAIL", "MGROS.IS": "RETAIL",
+    "ASELS.IS": "DEFENSE",
+    "EREGL.IS": "STEEL",
+    "FROTO.IS": "AUTO", "TOASO.IS": "AUTO",
+    "TCELL.IS": "TELCO",
+    "SISE.IS": "INDUSTRIAL"
+}
 
 # =============================================================================
-# DATA ACQUISITION & FEATURE GENERATION
+# DATA PIPELINE ACQUISITION
 # =============================================================================
-print("Fetching real-time multi-asset BIST 100 matrix...")
+print("Fetching live operational matrices from Yahoo Finance...")
 end_dt = datetime.now()
 start_dt = end_dt - timedelta(days=LOOKBACK_DAYS)
 
 ALL_TICKERS = BIST100_TICKERS + [MARKET_TICKER, FX_TICKER]
 raw = yf.download(tickers=ALL_TICKERS, start=start_dt.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"), auto_adjust=True, group_by="ticker", progress=False)
 
-market_close = raw[MARKET_TICKER]["Close"].dropna()
-market_ret_1d = safe_pct_change(market_close)
-fx_close = raw[FX_TICKER]["Close"].dropna()
-
-market_features = pd.DataFrame(index=market_close.index)
-market_features["mkt_ret_5d"] = market_close.pct_change(5)
-market_features["mkt_ret_21d"] = market_close.pct_change(21)
-market_features["mkt_vol_21d"] = market_ret_1d.rolling(21).std()
-market_features["mkt_vol_63d"] = market_ret_1d.rolling(63).std()
-market_features["mkt_ma_10_50"] = market_close.rolling(10).mean() / market_close.rolling(50).mean()
-market_features["mkt_ma_50_200"] = market_close.rolling(50).mean() / market_close.rolling(200).mean()
-market_features["fx_ret_5d"] = fx_close.pct_change(5).reindex(market_features.index).ffill()
-market_features["fx_ret_21d"] = fx_close.pct_change(21).reindex(market_features.index).ffill()
+market_close = raw[MARKET_TICKER]["Close"].ffill()
+market_ret_1d = market_close.pct_change()
 
 panel_list = []
 asset_returns_matrix = pd.DataFrame()
 
-print("Generating feature panel grids...")
+print("Processing causal indicator tables...")
 for t in BIST100_TICKERS:
     if t not in raw.columns.levels[0] or raw[t].dropna(how='all').empty: continue
     df = raw[t].copy().dropna(subset=["Close"])
     
     close, volume = df["Close"], df["Volume"]
-    ret_1d = safe_pct_change(close)
+    ret_1d = close.pct_change()
     asset_returns_matrix[t] = ret_1d
     
     feats = pd.DataFrame(index=close.index)
-    feats["ret_1d"] = ret_1d.shift(1)
     feats["ret_5d"] = close.pct_change(5).shift(1)
-    feats["ret_10d"] = close.pct_change(10).shift(1)
     feats["ret_21d"] = close.pct_change(21).shift(1)
     feats["ret_63d"] = close.pct_change(63).shift(1)
-    feats["vol_5d"] = ret_1d.shift(1).rolling(5).std()
-    feats["vol_21d"] = ret_1d.shift(1).rolling(21).std()
-    feats["vol_63d"] = ret_1d.shift(1).rolling(63).std()
-    feats["intraday_range"] = ((df["High"] - df["Low"]) / close).shift(1)
-    feats["volume_z"] = ((volume - volume.rolling(21).mean()) / volume.rolling(21).std()).shift(1)
-    feats["skew_21d"] = ret_1d.shift(1).rolling(21).skew()
-    feats["kurt_21d"] = ret_1d.shift(1).rolling(21).kurt()
-    feats["trend_ma_ratio"] = (close.rolling(10).mean() / close.rolling(50).mean()).shift(1)
-    feats["relative_strength_21d"] = (close.pct_change(21) - market_close.pct_change(21)).shift(1)
+    feats["vol_21d"] = ret1d.rolling(21).std().shift(1)
+    feats["ma_ratio"] = (close.rolling(10).mean() / close.rolling(50).mean()).shift(1)
     
-    feats = feats.join(market_features.shift(1), how="left")
+    aligned_mkt_ret = market_close.pct_change(21).reindex(close.index).ffill()
+    feats["relative_strength"] = (close.pct_change(21) - aligned_mkt_ret).shift(1)
+    feats["adv_try"] = (close * volume).rolling(21).mean().shift(1)
+    
     feats["target"] = close.pct_change(TARGET_HORIZON).shift(-TARGET_HORIZON)
     feats["ticker"] = t
+    feats["sector"] = SECTOR_MAP.get(t, "OTHER")
     
     panel_list.append(feats.dropna())
 
@@ -117,78 +106,59 @@ master_panel = pd.concat(panel_list).sort_index()
 unique_dates = np.sort(master_panel.index.unique())
 
 # =============================================================================
-# INCREMENTAL LIVE TRAINING ENGINE LOOP
+# ROLLING WALK-FORWARD INFERENCE
 # =============================================================================
-print("Calculating current alpha vectors across the BIST 100 index universe...")
-train_dates = unique_dates[:-1]  
-latest_date = unique_dates[-1]   
+print("Calculating upcoming portfolio deployment targets...")
+train_dates = unique_dates[:-1]
+latest_date = unique_dates[-1]
 
 train_set = master_panel.loc[train_dates]
-X_tr = train_set[[c for c in train_set.columns if c not in ["target", "ticker"]]]
-y_tr = train_set["target"]
+feature_cols = [c for c in master_panel.columns if c not in {"target", "ticker", "sector"}]
 
 model = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
     ("model", HistGradientBoostingRegressor(max_depth=3, max_iter=100, learning_rate=0.03, random_state=42))
 ])
-model.fit(X_tr.values, y_tr.values)
+model.fit(train_set[feature_cols].values, train_set["target"].values)
 
-day_data = master_panel.loc[[latest_date]]
-if day_data.empty:
-    print(f"⚠️ Critical Error: Data signature for {latest_date} is empty. Aborting pipeline update.")
-    exit(1)
+today_data = master_panel.loc[[latest_date]].copy()
+X_live = today_data[feature_cols].reindex(columns=feature_cols)
+today_data["alpha"] = model.predict(X_live.values)
 
-X_step = day_data[[c for c in day_data.columns if c not in ["target", "ticker"]]]
-tickers_step = day_data["ticker"].values
-pred_alphas = model.predict(X_step.values)
+def get_zscore(x):
+    std = x.std()
+    return (x - x.mean()) / std if std > 0 else pd.Series(0, index=x.index)
 
-# Defensively consolidated constructor mapping prevents key drift mismatch errors
-rank_df = pd.DataFrame({
-    "vol": day_data["vol_21d"].values,
-    "rs": day_data["relative_strength_21d"].values
-}, index=tickers_step)
+today_data["score"] = get_zscore(today_data["alpha"]) + get_zscore(today_data["relative_strength"])
+today_data = today_data.set_index("ticker")
 
-alpha_std = pred_alphas.std()
-rs_std = rank_df["rs"].std()
+# Apply Liquidity ADV Screening Filters
+today_data = today_data[today_data["adv_try"] > MIN_ADV_TRY]
 
-z_alpha = (pred_alphas - pred_alphas.mean()) / alpha_std if alpha_std > 0 else pred_alphas
-z_rs = (rank_df["rs"] - rank_df["rs"].mean()) / rs_std if rs_std > 0 else rank_df["rs"]
-
-# Combine signals cross-sectionally
-rank_df["composite_score"] = z_alpha + z_rs
-selected = rank_df.sort_values(by="composite_score", ascending=False).head(TOP_K)
-
-# =============================================================================
-# OPTIMIZED WEIGHT ALLOCATION WITH SAFE DATA FALLBACKS
-# =============================================================================
-vols = selected["vol"].replace(0, np.nan).dropna()
-
-# Fallback Guard: If less than 60% of selection contains clean metrics, deploy equal weighting
-if len(vols) < (TOP_K * 0.6):
-    print("⚠️ Volatility data gap caught. Reverting to equal-weight configuration.")
-    equal_weight = 1.0 / TOP_K
-    next_positions = list(selected.index)
-    next_weights = {t: float(equal_weight) for t in next_positions}
+if today_data.empty:
+    next_positions = ["CASH"]
+    next_weights = {"CASH": 1.0}
 else:
-    inv_vol = 1.0 / vols
-    weights_raw = inv_vol / inv_vol.sum()
+    selected = today_data.nlargest(TOP_K, "score").copy()
+    selected["vol_21d"] = selected["vol_21d"].clip(lower=VOLATILITY_FLOOR)
+    inv_vol = 1.0 / selected["vol_21d"]
     
-    weights_aligned = pd.Series(0.0, index=selected.index)
-    weights_aligned.update(weights_raw)
+    raw_weights = inv_vol / inv_vol.sum()
+    selected["weight"] = raw_weights
+    selected["weight"] = np.minimum(selected["weight"], MAX_SINGLE_POSITION_WEIGHT)
     
-    clipped = np.minimum(weights_aligned, MAX_SINGLE_POSITION_WEIGHT)
-    
-    if clipped.sum() == 0:
-        equal_weight = 1.0 / TOP_K
-        next_positions = list(selected.index)
-        next_weights = {t: float(equal_weight) for t in next_positions}
-    else:
-        renorm_weights = clipped / clipped.sum()
-        next_positions = list(selected.index)
-        next_weights = {t: float(w) for t, w in zip(selected.index, renorm_weights)}
+    for sector in selected["sector"].unique():
+        mask = selected["sector"] == sector
+        sector_sum = selected.loc[mask, "weight"].sum()
+        if sector_sum > MAX_SECTOR_WEIGHT:
+            selected.loc[mask, "weight"] *= (MAX_SECTOR_WEIGHT / sector_sum)
+            
+    selected["weight"] /= selected["weight"].sum()
+    next_positions = list(selected.index)
+    next_weights = {t: float(w) for t, w in zip(selected.index, selected["weight"])}
 
 # =============================================================================
-# PARSE ACCOUNT EQUITY CURVE STATE & APPEND HISTORICAL LOGS
+# ACCOUNT ACCOUNTING & DATABASE MUTATION DESK
 # =============================================================================
 history_file = "history.json"
 if os.path.exists(history_file):
@@ -201,37 +171,38 @@ else:
 if not history_data:
     current_capital = STARTING_CAPITAL
     current_benchmark = STARTING_CAPITAL
-    last_positions_logged = ["CASH"]
-    last_weights_logged = {"CASH": 1.0}
+    last_positions = ["CASH"]
+    last_weights = {"CASH": 1.0}
     running_peak = STARTING_CAPITAL
 else:
     last_entry = history_data[-1]
     current_capital = last_entry["capital"]
     current_benchmark = last_entry.get("benchmark_capital", STARTING_CAPITAL)
-    last_positions_logged = last_entry.get("positions", ["CASH"])
-    last_weights_logged = last_entry.get("weights", {"CASH": 1.0})
+    last_positions = last_entry.get("positions", ["CASH"])
+    last_weights = last_entry.get("weights", {"CASH": 1.0})
     running_peak = max([e["capital"] for e in history_data] + [current_capital])
 
-mkt_return_today = market_ret_1d.get(latest_date, 0.0)
-if np.isnan(mkt_return_today): mkt_return_today = 0.0
-current_benchmark *= (1.0 + mkt_return_today)
+# Accrue asset returns using current weights
+mkt_return = market_ret_1d.get(latest_date, 0.0)
+if np.isnan(mkt_return): mkt_return = 0.0
+current_benchmark *= (1.0 + mkt_return)
 
 day_return = 0.0
-if "CASH" not in last_positions_logged:
-    for asset in last_positions_logged:
-        try: asset_ret = asset_returns_matrix.loc[latest_date, asset]
-        except KeyError: asset_ret = 0.0
-        if np.isnan(asset_ret): asset_ret = 0.0
-        day_return += asset_ret * last_weights_logged.get(asset, 0.0)
+if "CASH" not in last_positions:
+    for asset in last_positions:
+        try: r = asset_returns_matrix.loc[latest_date, asset]
+        except KeyError: r = 0.0
+        if np.isnan(r): r = 0.0
+        day_return += r * last_weights.get(asset, 0.0)
     current_capital *= (1.0 + day_return)
 
-cost = 0.0
-for asset in set(last_positions_logged) | set(next_positions):
-    cost += abs(next_weights.get(asset, 0.0) - last_weights_logged.get(asset, 0.0)) * (TRANSACTION_COST + SLIPPAGE_COST)
-current_capital *= (1.0 - cost)
+# Deduct Turnover Cost Frictions
+all_assets = set(last_weights) | set(next_weights)
+turnover = sum(abs(next_weights.get(a, 0.0) - last_weights.get(a, 0.0)) for a in all_assets)
+current_capital *= (1.0 - turnover * (TRANSACTION_COST + SLIPPAGE_COST))
 
-current_drawdown = (current_capital - running_peak) / running_peak
-if current_drawdown <= DRAWDOWN_CIRCUIT_BREAKER:
+current_dd = (current_capital - running_peak) / running_peak
+if current_dd <= DRAWDOWN_CIRCUIT_BREAKER:
     next_positions = ["CASH"]
     next_weights = {"CASH": 1.0}
 
@@ -261,5 +232,5 @@ if len(history_data) > 250:
 with open(history_file, "w") as f:
     json.dump(history_data, f, indent=4)
 
-print(f"📊 Live Dashboard Pipeline execution completed successfully for: {new_record['date']}")
-print(f"   Portfolio Value: {current_capital:,.2f} TRY | Benchmark Value: {current_benchmark:,.2f} TRY")
+print(f"📊 Production state machine synchronized successfully for date: {new_record['date']}")
+print(f"   Portfolio Capital Base: {current_capital:,.2f} TRY | Benchmark Index Base: {current_benchmark:,.2f} TRY")
