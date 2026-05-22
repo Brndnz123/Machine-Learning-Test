@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v21 - BIST 100 Macro & Volatility Fallback Release)
+    update_dashboard_data.py (v22 - Production BIST 100 Release)
     Automated execution script for GitHub Actions deployment pipeline.
 ================================================================================
 """
@@ -18,18 +18,18 @@ from sklearn.pipeline import Pipeline
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# ENGINE CONFIGURATION (UPGRADED TO COMPLETE BIST 100 UNIVERSE)
+# ENGINE CONFIGURATION (TYPO-FIXED COMPREHENSIVE BIST 100 UNIVERSE)
 # =============================================================================
 BIST100_TICKERS = [
     "AEFES.IS", "AGHOL.IS", "AKBNK.IS", "AKCNS.IS", "AKFGY.IS", "AKSA.IS", "AKSEN.IS", "ALARK.IS", "ALBRK.IS", "ALFAS.IS",
-    "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "ASUZU", "AYDEM.IS", "BAGFAS.IS", "BERA.IS", "BIMAS.IS", "BRSAN.IS", "BRYAT.IS",
+    "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "ASUZU.IS", "AYDEM.IS", "BERA.IS", "BIMAS.IS", "BRSAN.IS", "BRYAT.IS",
     "BUCIM.IS", "CCOLA.IS", "CEMTS.IS", "CIMSA.IS", "CWENE.IS", "DOAS.IS", "DOHOL.IS", "ECILC.IS", "EGEEN.IS", "EKGYO.IS",
     "ENJSA.IS", "ENKAI.IS", "EREGL.IS", "EUPWR.IS", "FROTO.IS", "GARAN.IS", "GENIL.IS", "GESAN.IS", "GOLTS.IS", "GSDHO.IS",
-    "GUBRF.IS", "GWIND.IS", "HALKB.IS", "HEKTS.IS", "IPEKE.IS", "ISCTR.IS", "ISGYO.IS", "ISMEN.IS", "IZMDC.IS", "KARDMD.IS",
-    "KCAER.IS", "KCHOL.IS", "KENT.IS", "KONTR.IS", "KORDS.IS", "KOZAA.IS", "KOZAL.IS", "KRDMD.IS", "LOGO.IS", "MAVI.IS",
-    "MGROS.IS", "MIATK.IS", "ODAS.IS", "OTKAR.IS", "OYAKC.IS", "PENTA.IS", "PETKM.IS", "PGSUS.IS", "QUAGR.IS", "SAHOL.IS",
-    "SASA.IS", "SAYAS.IS", "SDTTR.IS", "SISE.IS", "SKBNK.IS", "SMRTG.IS", "SOKM.IS", "TABGD.IS", "TAVHL.IS", "TCELL.IS",
-    "THYAO.IS", "TKFEN.IS", "TOASO.IS", "TSKB.IS", "TTKOM.IS", "TTRAK.IS", "TUKAS.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS",
+    "GUBRF.IS", "GWIND.IS", "HALKB.IS", "HEKTS.IS", "ISCTR.IS", "ISGYO.IS", "ISMEN.IS", "IZMDC.IS", "KCAER.IS", 
+    "KCHOL.IS", "KENT.IS", "KONTR.IS", "KORDS.IS", "LOGO.IS", "MAVI.IS", "MGROS.IS", "MIATK.IS", "ODAS.IS", 
+    "OTKAR.IS", "OYAKC.IS", "PENTA.IS", "PETKM.IS", "PGSUS.IS", "QUAGR.IS", "SAHOL.IS", "SASA.IS", "SAYAS.IS", 
+    "SDTTR.IS", "SISE.IS", "SKBNK.IS", "SMRTG.IS", "SOKM.IS", "TABGD.IS", "TAVHL.IS", "TCELL.IS", "THYAO.IS", 
+    "TKFEN.IS", "TOASO.IS", "TSKB.IS", "TTKOM.IS", "TTRAK.IS", "TUKAS.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS", 
     "ULKER.IS", "VAKBN.IS", "VESBE.IS", "VESTL.IS", "YEOTK.IS", "YKBNK.IS", "YYLGD.IS", "ZOREN.IS"
 ]
 
@@ -38,7 +38,7 @@ FX_TICKER = "USDTRY=X"
 
 LOOKBACK_DAYS = 365 * 3         
 TOP_K = 5
-TARGET_HORIZON = 21             
+TARGET_HORIZON = 21             # 1-month intermediate macro trend target window
 
 STARTING_CAPITAL = 10000.0      
 TRANSACTION_COST = 0.0015
@@ -142,6 +142,7 @@ X_step = day_data[[c for c in day_data.columns if c not in ["target", "ticker"]]
 tickers_step = day_data["ticker"].values
 pred_alphas = model.predict(X_step.values)
 
+# Defensively consolidated constructor mapping prevents key drift mismatch errors
 rank_df = pd.DataFrame({
     "vol": day_data["vol_21d"].values,
     "rs": day_data["relative_strength_21d"].values
@@ -153,6 +154,7 @@ rs_std = rank_df["rs"].std()
 z_alpha = (pred_alphas - pred_alphas.mean()) / alpha_std if alpha_std > 0 else pred_alphas
 z_rs = (rank_df["rs"] - rank_df["rs"].mean()) / rs_std if rs_std > 0 else rank_df["rs"]
 
+# Combine signals cross-sectionally
 rank_df["composite_score"] = z_alpha + z_rs
 selected = rank_df.sort_values(by="composite_score", ascending=False).head(TOP_K)
 
@@ -161,9 +163,9 @@ selected = rank_df.sort_values(by="composite_score", ascending=False).head(TOP_K
 # =============================================================================
 vols = selected["vol"].replace(0, np.nan).dropna()
 
-# Upgraded Fallback Guard: If less than 60% of the selection has clean volatility data, fall back to pure Equal Weight
+# Fallback Guard: If less than 60% of selection contains clean metrics, deploy equal weighting
 if len(vols) < (TOP_K * 0.6):
-    print("⚠️ Data anomaly caught: Insufficient volatility metrics. Deploying equal-weight configuration.")
+    print("⚠️ Volatility data gap caught. Reverting to equal-weight configuration.")
     equal_weight = 1.0 / TOP_K
     next_positions = list(selected.index)
     next_weights = {t: float(equal_weight) for t in next_positions}
@@ -171,13 +173,11 @@ else:
     inv_vol = 1.0 / vols
     weights_raw = inv_vol / inv_vol.sum()
     
-    # Align the computed inverse volatility series index back onto our top picks cleanly
     weights_aligned = pd.Series(0.0, index=selected.index)
     weights_aligned.update(weights_raw)
     
     clipped = np.minimum(weights_aligned, MAX_SINGLE_POSITION_WEIGHT)
     
-    # Secure fallback check: if clipping forces a division by zero error, revert to equal weight instantly
     if clipped.sum() == 0:
         equal_weight = 1.0 / TOP_K
         next_positions = list(selected.index)
