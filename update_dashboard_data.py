@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v20 - Production Scope Fix Release)
+    update_dashboard_data.py (v21 - BIST 100 Macro & Volatility Fallback Release)
     Automated execution script for GitHub Actions deployment pipeline.
 ================================================================================
 """
@@ -18,28 +18,29 @@ from sklearn.pipeline import Pipeline
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# ENGINE CONFIGURATION (ALIGNED TO EXPERIMENTAL LAB)
+# ENGINE CONFIGURATION (UPGRADED TO COMPLETE BIST 100 UNIVERSE)
 # =============================================================================
-BIST30_TICKERS = [
-    "AKBNK.IS", "ARCLK.IS", "ASELS.IS", "BIMAS.IS", "DOHOL.IS",
-    "EKGYO.IS", "ENKAI.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS",
-    "HALKB.IS", "ISCTR.IS", "KCHOL.IS", "KRDMD.IS", "LOGO.IS",
-    "MGROS.IS", "ODAS.IS", "OYAKC.IS", "PETKM.IS", "PGSUS.IS",
-    "SAHOL.IS", "SASA.IS", "SISE.IS", "TAVHL.IS", "TCELL.IS",
-    "THYAO.IS", "TOASO.IS", "TTKOM.IS", "TUPRS.IS"
+BIST100_TICKERS = [
+    "AEFES.IS", "AGHOL.IS", "AKBNK.IS", "AKCNS.IS", "AKFGY.IS", "AKSA.IS", "AKSEN.IS", "ALARK.IS", "ALBRK.IS", "ALFAS.IS",
+    "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "ASUZU", "AYDEM.IS", "BAGFAS.IS", "BERA.IS", "BIMAS.IS", "BRSAN.IS", "BRYAT.IS",
+    "BUCIM.IS", "CCOLA.IS", "CEMTS.IS", "CIMSA.IS", "CWENE.IS", "DOAS.IS", "DOHOL.IS", "ECILC.IS", "EGEEN.IS", "EKGYO.IS",
+    "ENJSA.IS", "ENKAI.IS", "EREGL.IS", "EUPWR.IS", "FROTO.IS", "GARAN.IS", "GENIL.IS", "GESAN.IS", "GOLTS.IS", "GSDHO.IS",
+    "GUBRF.IS", "GWIND.IS", "HALKB.IS", "HEKTS.IS", "IPEKE.IS", "ISCTR.IS", "ISGYO.IS", "ISMEN.IS", "IZMDC.IS", "KARDMD.IS",
+    "KCAER.IS", "KCHOL.IS", "KENT.IS", "KONTR.IS", "KORDS.IS", "KOZAA.IS", "KOZAL.IS", "KRDMD.IS", "LOGO.IS", "MAVI.IS",
+    "MGROS.IS", "MIATK.IS", "ODAS.IS", "OTKAR.IS", "OYAKC.IS", "PENTA.IS", "PETKM.IS", "PGSUS.IS", "QUAGR.IS", "SAHOL.IS",
+    "SASA.IS", "SAYAS.IS", "SDTTR.IS", "SISE.IS", "SKBNK.IS", "SMRTG.IS", "SOKM.IS", "TABGD.IS", "TAVHL.IS", "TCELL.IS",
+    "THYAO.IS", "TKFEN.IS", "TOASO.IS", "TSKB.IS", "TTKOM.IS", "TTRAK.IS", "TUKAS.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS",
+    "ULKER.IS", "VAKBN.IS", "VESBE.IS", "VESTL.IS", "YEOTK.IS", "YKBNK.IS", "YYLGD.IS", "ZOREN.IS"
 ]
 
 MARKET_TICKER = "XU100.IS"
 FX_TICKER = "USDTRY=X"          
 
-# 2-year lookback training window + 1 year indicator calculation padding
 LOOKBACK_DAYS = 365 * 3         
 TOP_K = 5
-TARGET_HORIZON = 21             # 1-month intermediate macro trend targeting
+TARGET_HORIZON = 21             
 
-# Fixed: Explicit global binding to prevent GitHub Actions NameError initialization crashes
 STARTING_CAPITAL = 10000.0      
-
 TRANSACTION_COST = 0.0015
 SLIPPAGE_COST = 0.0005
 MAX_SINGLE_POSITION_WEIGHT = 0.35
@@ -57,30 +58,24 @@ def safe_pct_change(series):
 # =============================================================================
 # DATA ACQUISITION & FEATURE GENERATION
 # =============================================================================
-print("Fetching real-time multi-asset market data matrix...")
+print("Fetching real-time multi-asset BIST 100 matrix...")
 end_dt = datetime.now()
 start_dt = end_dt - timedelta(days=LOOKBACK_DAYS)
 
-ALL_TICKERS = BIST30_TICKERS + [MARKET_TICKER, FX_TICKER]
+ALL_TICKERS = BIST100_TICKERS + [MARKET_TICKER, FX_TICKER]
 raw = yf.download(tickers=ALL_TICKERS, start=start_dt.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"), auto_adjust=True, group_by="ticker", progress=False)
 
 market_close = raw[MARKET_TICKER]["Close"].dropna()
 market_ret_1d = safe_pct_change(market_close)
-
 fx_close = raw[FX_TICKER]["Close"].dropna()
 
-# Build the Macro & FX regime vectors
 market_features = pd.DataFrame(index=market_close.index)
 market_features["mkt_ret_5d"] = market_close.pct_change(5)
 market_features["mkt_ret_21d"] = market_close.pct_change(21)
 market_features["mkt_vol_21d"] = market_ret_1d.rolling(21).std()
 market_features["mkt_vol_63d"] = market_ret_1d.rolling(63).std()
-
-# Macro Trend Channels
 market_features["mkt_ma_10_50"] = market_close.rolling(10).mean() / market_close.rolling(50).mean()
 market_features["mkt_ma_50_200"] = market_close.rolling(50).mean() / market_close.rolling(200).mean()
-
-# FX Currency Channels
 market_features["fx_ret_5d"] = fx_close.pct_change(5).reindex(market_features.index).ffill()
 market_features["fx_ret_21d"] = fx_close.pct_change(21).reindex(market_features.index).ffill()
 
@@ -88,7 +83,7 @@ panel_list = []
 asset_returns_matrix = pd.DataFrame()
 
 print("Generating feature panel grids...")
-for t in BIST30_TICKERS:
+for t in BIST100_TICKERS:
     if t not in raw.columns.levels[0] or raw[t].dropna(how='all').empty: continue
     df = raw[t].copy().dropna(subset=["Close"])
     
@@ -124,7 +119,7 @@ unique_dates = np.sort(master_panel.index.unique())
 # =============================================================================
 # INCREMENTAL LIVE TRAINING ENGINE LOOP
 # =============================================================================
-print("Executing sliding training windows for target alpha vector calculation...")
+print("Calculating current alpha vectors across the BIST 100 index universe...")
 train_dates = unique_dates[:-1]  
 latest_date = unique_dates[-1]   
 
@@ -134,12 +129,7 @@ y_tr = train_set["target"]
 
 model = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
-    ("model", HistGradientBoostingRegressor(
-        max_depth=3,
-        max_iter=100,
-        learning_rate=0.03,
-        random_state=42
-    ))
+    ("model", HistGradientBoostingRegressor(max_depth=3, max_iter=100, learning_rate=0.03, random_state=42))
 ])
 model.fit(X_tr.values, y_tr.values)
 
@@ -166,15 +156,36 @@ z_rs = (rank_df["rs"] - rank_df["rs"].mean()) / rs_std if rs_std > 0 else rank_d
 rank_df["composite_score"] = z_alpha + z_rs
 selected = rank_df.sort_values(by="composite_score", ascending=False).head(TOP_K)
 
-vols = selected["vol"].replace(0, np.nan)
-inv_vol = 1.0 / vols
-weights_raw = inv_vol / inv_vol.sum()
+# =============================================================================
+# OPTIMIZED WEIGHT ALLOCATION WITH SAFE DATA FALLBACKS
+# =============================================================================
+vols = selected["vol"].replace(0, np.nan).dropna()
 
-clipped = np.minimum(weights_raw, MAX_SINGLE_POSITION_WEIGHT)
-renorm_weights = clipped / clipped.sum()
-
-next_positions = list(selected.index)
-next_weights = {t: float(w) for t, w in zip(selected.index, renorm_weights)}
+# Upgraded Fallback Guard: If less than 60% of the selection has clean volatility data, fall back to pure Equal Weight
+if len(vols) < (TOP_K * 0.6):
+    print("⚠️ Data anomaly caught: Insufficient volatility metrics. Deploying equal-weight configuration.")
+    equal_weight = 1.0 / TOP_K
+    next_positions = list(selected.index)
+    next_weights = {t: float(equal_weight) for t in next_positions}
+else:
+    inv_vol = 1.0 / vols
+    weights_raw = inv_vol / inv_vol.sum()
+    
+    # Align the computed inverse volatility series index back onto our top picks cleanly
+    weights_aligned = pd.Series(0.0, index=selected.index)
+    weights_aligned.update(weights_raw)
+    
+    clipped = np.minimum(weights_aligned, MAX_SINGLE_POSITION_WEIGHT)
+    
+    # Secure fallback check: if clipping forces a division by zero error, revert to equal weight instantly
+    if clipped.sum() == 0:
+        equal_weight = 1.0 / TOP_K
+        next_positions = list(selected.index)
+        next_weights = {t: float(equal_weight) for t in next_positions}
+    else:
+        renorm_weights = clipped / clipped.sum()
+        next_positions = list(selected.index)
+        next_weights = {t: float(w) for t, w in zip(selected.index, renorm_weights)}
 
 # =============================================================================
 # PARSE ACCOUNT EQUITY CURVE STATE & APPEND HISTORICAL LOGS
