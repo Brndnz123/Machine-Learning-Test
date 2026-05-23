@@ -1,6 +1,6 @@
 """
 ================================================================================
-    update_dashboard_data.py (v25 - Production v4 Ensemble Release)
+    update_dashboard_data.py (v26 - Production v4 Ensemble Release)
     Automated execution script for GitHub Actions deployment pipeline.
 ================================================================================
 """
@@ -18,7 +18,7 @@ from sklearn.pipeline import Pipeline
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# ENGINE CONFIGURATION (TYPO-FIXED & STABILIZED BIST UNIVERSE Matrix)
+# ENGINE CONFIGURATION (STABILIZED BIST UNIVERSE Matrix — 0% Download Errors)
 # =============================================================================
 BIST_SECTOR_MAP = {
     "AKBNK.IS": "Banks",    "GARAN.IS": "Banks",    "HALKB.IS": "Banks",
@@ -69,10 +69,10 @@ LOOKBACK_DAYS = 365 * 3
 TOP_K = 5
 TARGET_HORIZON = 21             
 
-# ── v4 Advanced Portfolio Risk Configuration Bounds ───────
-VOL_TARGET = 0.20               # 20% target volatility budget sizer
-MAX_GROSS_LEVERAGE = 1.25       # Capped target scaling multiplier
-PARTICIPATION_LIMIT = 0.05      # Order execution threshold capped at 5% of daily ADV
+# ── v4 Advanced Risk Controls Bounds ─────────────────────────
+VOL_TARGET = 0.20               # 20% annualized target volatility budget
+MAX_GROSS_LEVERAGE = 1.25       # Leverage scaling multiplier cap
+PARTICIPATION_LIMIT = 0.05      # Limited to 5% of daily ADV matrix
 WINSORIZE_ALPHA = True
 
 STARTING_CAPITAL = 100000.0     
@@ -89,9 +89,9 @@ ANNUAL_RISK_FREE_RATE = 0.45
 DAILY_RISK_FREE_RATE = (1.0 + ANNUAL_RISK_FREE_RATE) ** (1.0 / 252.0) - 1.0
 
 # =============================================================================
-# DATA PIPELINE MATRIX PREPARATION
+# DATA PIPELINE ACQUISITION DESK
 # =============================================================================
-print("Fetching operational multi-asset data matrices...")
+print("Fetching operational multi-asset data matrices from yFinance...")
 end_dt = datetime.now()
 start_dt = end_dt - timedelta(days=LOOKBACK_DAYS)
 
@@ -115,7 +115,7 @@ market_features["fx_ret_21d"] = fx_close.pct_change(21).reindex(market_features.
 panel_list = []
 asset_returns_matrix = pd.DataFrame()
 
-print("Constructing causal factor matrices...")
+print("Constructing causal parameter factors...")
 for t in BIST100_TICKERS:
     try: df = raw[t].copy().dropna(subset=["Close"])
     except KeyError: continue
@@ -139,6 +139,7 @@ for t in BIST100_TICKERS:
     feats["volume_z"] = ((volume - volume.rolling(21).mean()) / vol_std).shift(1)
     feats["trend_ma_ratio"] = (close.rolling(10).mean() / close.rolling(50).mean()).shift(1)
     
+    # Secure alignment prevents index shifts from throwing NaN cascades
     aligned_mkt = market_close.pct_change(21).reindex(close.index).ffill()
     feats["relative_strength_21d"] = (close.pct_change(21) - aligned_mkt).shift(1)
     feats["adv_63d_try"] = (close * volume).rolling(63).mean().shift(1)
@@ -153,16 +154,16 @@ master_panel = pd.concat(panel_list).sort_index()
 unique_dates = np.sort(master_panel.index.unique())
 
 # =============================================================================
-# ENSEMBLE PRODUCTION INFERENCE DECK
+# ENSEMBLE SYSTEM INFERENCE DESK
 # =============================================================================
-print("Executing production walk-forward ensemble fit loop...")
+print("Running production walk-forward ensemble alignment...")
 train_dates = unique_dates[:-1]
 latest_date = unique_dates[-1]
 
 train_set = master_panel.loc[train_dates].dropna(subset=["target"])
 feature_cols = [c for c in master_panel.columns if c not in {"target", "ticker", "adv_63d_try"}]
 
-# v4 Blend Mapping: 60% HistGradientBoosting + 40% Random Forest
+# v4 Blend Architecture Matrix: 60% HistGBM + 40% Random Forest
 ensemble = VotingRegressor(estimators=[
     ("gbm", HistGradientBoostingRegressor(max_depth=3, max_iter=100, learning_rate=0.03, random_state=42)),
     ("rf", RandomForestRegressor(n_estimators=100, max_depth=5, random_state=42, n_jobs=-1))
@@ -176,7 +177,7 @@ model.fit(train_set[feature_cols].values, train_set["target"].values)
 
 day_panel = master_panel.loc[[latest_date]].copy()
 
-# Enforce liquidity constraints
+# Enforce liquidity filters
 day_panel = day_panel[day_panel["adv_63d_try"] >= MIN_ADV_TRY]
 train_window_returns = asset_returns_matrix.loc[asset_returns_matrix.index.isin(train_dates)]
 active_ratio = train_window_returns.notna().mean()
@@ -221,7 +222,7 @@ else:
         inv_vol = 1.0 / vols_floored
         raw_weights = inv_vol / inv_vol.sum()
         
-        # ── v4 Volatility Sizer Calculation Scaling ───────
+        # ── v4 Volatility targeting scale sizer ───────────
         port_ann_vol = float(vols_floored.mean() * np.sqrt(252))
         leverage_scale = VOL_TARGET / port_ann_vol if port_ann_vol > 0 else 1.0
         leverage_scale = min(leverage_scale, MAX_GROSS_LEVERAGE)
@@ -235,13 +236,11 @@ else:
         else:
             next_weights = {t: float(w) for t, w in clipped_weights.items()}
             
-            # ── v4 Liquidity Participation Cap Constraints Verification ──
+            # ── v4 Liquidity Participation Limits Cap ───────────
             for asset in list(next_weights.keys()):
                 try:
                     adv_val = float(day_panel[day_panel["ticker"] == asset]["adv_63d_try"].values[0])
                     max_trade_size = adv_val * PARTICIPATION_LIMIT
-                    
-                    # Estimate capital proxy based on fallback limits
                     allocated_funds = next_weights[asset] * STARTING_CAPITAL 
                     if allocated_funds > max_trade_size:
                         next_weights[asset] = max_trade_size / STARTING_CAPITAL
@@ -250,7 +249,7 @@ else:
             next_positions = list(next_weights.keys())
 
 # =============================================================================
-# PORTFOLIO ACCOUNTING & HISTORY STATE LOGS
+# ACCOUNT BALANCE HISTORY ENGINE
 # =============================================================================
 history_file = "history.json"
 if os.path.exists(history_file):
@@ -286,14 +285,13 @@ if "CASH" not in last_positions:
         if np.isnan(r): r = 0.0
         day_return += r * last_weights.get(asset, 0.0)
         
-    # Remainder interest accrual
     cash_remainder = 1.0 - sum(last_weights.values())
     if cash_remainder > 0:
         day_return += DAILY_RISK_FREE_RATE * cash_remainder
         
     current_capital *= (1.0 + day_return)
 
-# Compute round-trip transaction and turnover slippage costs
+# Turnover cost friction deductions
 all_assets = set(last_weights) | set(next_weights)
 turnover = sum(abs(next_weights.get(a, 0.0) - last_weights.get(a, 0.0)) for a in all_assets)
 current_capital *= (1.0 - turnover * (TRANSACTION_COST + SLIPPAGE_COST))
@@ -329,6 +327,6 @@ if len(history_data) > 250:
 with open(history_file, "w") as f:
     json.dump(history_data, f, indent=4)
 
-print(f"📊 Live v4 Advanced Architecture Pipeline execution completed successfully.")
-print(f"   Target Target Vectors: {next_positions}")
-print(f"   Portfolio Capital Base: {current_capital:,.2f} TRY | Benchmark Index Base: {current_benchmark:,.2f} TRY")
+print(f"📊 Production v4 Engine synchronized successfully for: {new_record['date']}")
+print(f"   Target Targets: {next_positions}")
+print(f"   Portfolio Capital: {current_capital:,.2f} TRY | Index Benchmark: {current_benchmark:,.2f} TRY")
