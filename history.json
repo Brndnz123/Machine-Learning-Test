@@ -1,2 +1,23 @@
 [
+    {
+        "date": "2026-05-22",
+        "capital": 99742.28210677054,
+        "benchmark_capital": 104894.44454583045,
+        "sharpe": 0.0,
+        "max_drawdown": -0.002577178932294628,
+        "positions": [
+            "YEOTK.IS",
+            "ASTOR.IS",
+            "SMRTG.IS",
+            "EUPWR.IS",
+            "CCOLA.IS"
+        ],
+        "weights": {
+            "YEOTK.IS": 0.04454672702973434,
+            "ASTOR.IS": 0.04780735541616021,
+            "SMRTG.IS": 0.043904030167598904,
+            "EUPWR.IS": 0.05071579987971455,
+            "CCOLA.IS": 0.10161555365412817
+        }
+    }
 ]
