@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BIST 30 Stat-Arb Dashboard</title>
+    <title>BIST 100 Alpha Engine Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -21,7 +21,7 @@
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                     </span>
-                    <h1 class="text-2xl font-bold tracking-tight text-white">BIST 30 Alpha Engine</h1>
+                    <h1 class="text-2xl font-bold tracking-tight text-white">BIST 100 Alpha Engine</h1>
                 </div>
                 <p class="text-sm text-slate-400 mt-0.5">Cross-Sectional Statistical Arbitrage Portfolio Hub</p>
             </div>
@@ -83,7 +83,12 @@
         fetch('history.json')
             .then(res => res.json())
             .then(data => {
-                const initialCapital = 10000.0;
+                if (!data || data.length === 0) {
+                    throw new Error("Empty history dataset array structure caught.");
+                }
+                
+                // Patched: Corrected to match 100,000 TRY production configuration base
+                const initialCapital = 100000.0;
                 const latest = data[data.length - 1];
                 
                 // 1. Map Metrics Summary Cards
@@ -91,7 +96,7 @@
                 document.getElementById('live-date').innerText = latest.date;
                 
                 const sharpeVal = latest.sharpe;
-                document.getElementById('live-sharpe').innerText = (sharpeVal && !isNaN(sharpeVal)) ? parseFloat(sharpeVal).toFixed(2) : 'N/A';
+                document.getElementById('live-sharpe').innerText = (sharpeVal !== undefined && !isNaN(sharpeVal)) ? parseFloat(sharpeVal).toFixed(2) : '0.00';
                 document.getElementById('live-mdd').innerText = (latest.max_drawdown * 100).toFixed(2) + '%';
 
                 // Calculate cumulative return percentage shift
@@ -157,7 +162,7 @@
                             {
                                 label: 'AI Quant Engine',
                                 data: robotCapitals,
-                                borderColor: '#10b981', // Emerald Line
+                                borderColor: '#10b981', 
                                 borderWidth: 2.5,
                                 pointBackgroundColor: '#10b981',
                                 fill: false,
@@ -166,7 +171,7 @@
                             {
                                 label: 'BIST 100 Benchmark',
                                 data: marketCapitals,
-                                borderColor: '#64748b', // Slate Dotted Line
+                                borderColor: '#64748b', 
                                 borderWidth: 1.5,
                                 borderDash: [5, 5],
                                 pointBackgroundColor: '#64748b',
@@ -196,6 +201,13 @@
                         }
                     }
                 });
+            })
+            .catch(err => {
+                console.error("Dashboard render exception caught:", err);
+                document.getElementById('allocations-list').innerHTML = `
+                    <div class="text-slate-500 text-xs text-center py-4">
+                        ⚠️ Waiting for initial database synchronization record rows...
+                    </div>`;
             });
     </script>
 </body>
