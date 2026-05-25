@@ -19,5 +19,26 @@
             "EUPWR.IS": 0.05071579987971455,
             "CCOLA.IS": 0.10161555365412817
         }
+    },
+    {
+        "date": "2026-05-22",
+        "capital": 101788.1489490716,
+        "benchmark_capital": 110028.44496578301,
+        "sharpe": 0.0,
+        "max_drawdown": -0.002577178932294628,
+        "positions": [
+            "YEOTK.IS",
+            "ASTOR.IS",
+            "SMRTG.IS",
+            "EUPWR.IS",
+            "KORDS.IS"
+        ],
+        "weights": {
+            "YEOTK.IS": 0.049057840204640026,
+            "ASTOR.IS": 0.05264866262895024,
+            "SMRTG.IS": 0.048350059362702556,
+            "EUPWR.IS": 0.05585163652289935,
+            "KORDS.IS": 0.054245081909339084
+        }
     }
 ]
