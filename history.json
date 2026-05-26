@@ -61,5 +61,26 @@
             "ALFAS.IS": 0.050556806518709876,
             "SMRTG.IS": 0.04622649511984488
         }
+    },
+    {
+        "date": "2026-05-25",
+        "capital": 104106.42080456903,
+        "benchmark_capital": 111350.3584353133,
+        "sharpe": 0.0,
+        "max_drawdown": -0.002577178932294628,
+        "positions": [
+            "EUPWR.IS",
+            "YEOTK.IS",
+            "ALFAS.IS",
+            "GESAN.IS",
+            "ASTOR.IS"
+        ],
+        "weights": {
+            "EUPWR.IS": 0.05312892956081789,
+            "YEOTK.IS": 0.047602748790213194,
+            "ALFAS.IS": 0.05059985340572409,
+            "GESAN.IS": 0.05236598498437991,
+            "ASTOR.IS": 0.04998368036778815
+        }
     }
 ]
