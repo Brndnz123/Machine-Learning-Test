@@ -82,5 +82,26 @@
             "GESAN.IS": 0.05236598498437991,
             "ASTOR.IS": 0.04998368036778815
         }
+    },
+    {
+        "date": "2026-05-26",
+        "capital": 102830.91617807106,
+        "benchmark_capital": 109521.88934481522,
+        "sharpe": 0.0,
+        "max_drawdown": -0.012251930444255519,
+        "positions": [
+            "EUPWR.IS",
+            "YEOTK.IS",
+            "SMRTG.IS",
+            "HEKTS.IS",
+            "CWENE.IS"
+        ],
+        "weights": {
+            "EUPWR.IS": 0.05060676554787005,
+            "YEOTK.IS": 0.04778256949886074,
+            "SMRTG.IS": 0.04779764258007152,
+            "HEKTS.IS": 0.041879581423677065,
+            "CWENE.IS": 0.0514071374497637
+        }
     }
 ]
