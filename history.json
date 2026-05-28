@@ -103,5 +103,26 @@
             "HEKTS.IS": 0.041879581423677065,
             "CWENE.IS": 0.0514071374497637
         }
+    },
+    {
+        "date": "2026-05-26",
+        "capital": 101615.7941863899,
+        "benchmark_capital": 107723.44529655218,
+        "sharpe": 0.0,
+        "max_drawdown": -0.02392385214024974,
+        "positions": [
+            "EUPWR.IS",
+            "YEOTK.IS",
+            "SMRTG.IS",
+            "HEKTS.IS",
+            "CWENE.IS"
+        ],
+        "weights": {
+            "EUPWR.IS": 0.05060676554787005,
+            "YEOTK.IS": 0.04778256949886074,
+            "SMRTG.IS": 0.04779764258007152,
+            "HEKTS.IS": 0.041879581423677065,
+            "CWENE.IS": 0.0514071374497637
+        }
     }
 ]
