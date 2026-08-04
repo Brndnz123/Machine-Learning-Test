@@ -1103,5 +1103,26 @@
         "weights": {
             "YEOTK.IS": 0.2
         }
+    },
+    {
+        "date": "2026-08-03",
+        "capital": 97250.51558964918,
+        "benchmark_capital": 105644.16645982479,
+        "sharpe": -3.762857264375125,
+        "max_drawdown": -0.0794319767342242,
+        "positions": [
+            "KONTR.IS",
+            "TUPRS.IS",
+            "AKSEN.IS",
+            "PETKM.IS",
+            "SASA.IS"
+        ],
+        "weights": {
+            "KONTR.IS": 0.024976605370791213,
+            "TUPRS.IS": 0.0794765116201741,
+            "AKSEN.IS": 0.05041692582671811,
+            "PETKM.IS": 0.05808811636530139,
+            "SASA.IS": 0.06752057917350127
+        }
     }
 ]
